@@ -1,0 +1,7 @@
+data/
+*.db
+.git
+.gitignore
+geocoder
+.cursor/
+**/*_test.go

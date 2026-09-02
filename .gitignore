@@ -1,0 +1,23 @@
+# Binary
+/geocoder
+
+# G-NAF downloads, manifests, and SQLite database
+/data/
+*.db
+
+# IDE / editor
+.cursor/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
