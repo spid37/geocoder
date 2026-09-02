@@ -12,7 +12,7 @@ RUN go mod download
 
 COPY . .
 
-RUN VERSION="$(tr -d '[:space:]' < VERSION)" && \
+RUN VERSION="$(grep -v '^[[:space:]]*#' VERSION | grep -v '^[[:space:]]*$' | head -n1 | tr -d '[:space:]')" && \
 	CGO_ENABLED=0 go build -trimpath \
 	-ldflags="-s -w -X github.com/spid37/geocoder/internal/version.ldflagsVersion=${VERSION}" \
 	-o /geocoder ./cmd/geocoder
