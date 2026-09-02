@@ -1,7 +1,4 @@
 # Product version (single source of truth).
 # Format: YYYY.MM.DD+BUILD  (zero-padded month/day + monotonic build number)
 #   Example: 2026.09.02+1
-# Bump build:     make version-bb
-# Set explicitly: make version-set V=2026.09.02+14
-# Build binary:   make build
-2026.09.02+5
+2026.09.02+6
