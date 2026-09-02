@@ -1,0 +1,36 @@
+name: Bump version
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bump version
+        run: make version-bump
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          if git diff --staged --quiet; then
+            echo "VERSION unchanged; nothing to commit"
+            exit 0
+          fi
+          version="$(make version)"
+          git commit -m "chore: bump version to ${version} [skip ci]"
+          git push
