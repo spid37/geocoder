@@ -48,9 +48,6 @@ write_version_file() {
     echo "# Product version (single source of truth)."
     echo "# Format: YYYY.MM.DD+BUILD  (zero-padded month/day + monotonic build number)"
     echo "#   Example: 2026.09.02+1"
-    echo "# Bump build:     make version-bb"
-    echo "# Set explicitly: make version-set V=2026.09.02+14"
-    echo "# Build binary:   make build"
     echo "$ver"
   } >"$VERSION_FILE"
 }
