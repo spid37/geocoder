@@ -3,7 +3,7 @@
 FROM golang:1.27-alpine AS build
 
 ENV GOTOOLCHAIN=auto
-RUN apk add --no-cache ca-certificates git
+RUN apk add --no-cache ca-certificates git make
 
 WORKDIR /src
 
@@ -12,10 +12,7 @@ RUN go mod download
 
 COPY . .
 
-RUN VERSION="$(grep -v '^[[:space:]]*#' VERSION | grep -v '^[[:space:]]*$' | head -n1 | tr -d '[:space:]')" && \
-	CGO_ENABLED=0 go build -trimpath \
-	-ldflags="-s -w -X github.com/spid37/geocoder/internal/version.ldflagsVersion=${VERSION}" \
-	-o /geocoder ./cmd/geocoder
+RUN make build BINARY=/geocoder
 
 FROM alpine:3.21
 
