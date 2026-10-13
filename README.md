@@ -72,6 +72,10 @@ docker run --rm -p 8080:8080 \
   geocoder
 ```
 
+## Deployment
+
+For hosting with an externally built SQLite database on AWS (EC2 + S3), see [docs/aws-deployment.md](docs/aws-deployment.md).
+
 ## API
 
 | Endpoint | Description |
