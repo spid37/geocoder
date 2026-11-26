@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spid37/geocoder/internal/api"
+	"github.com/spid37/geocoder/internal/config"
 	"github.com/spid37/geocoder/internal/geocode"
 	"github.com/spid37/geocoder/internal/store"
 )
@@ -122,6 +123,16 @@ func TestSuggestSuburbs(t *testing.T) {
 	}
 }
 
+func TestListSuburbs_whitespaceRegionSlug(t *testing.T) {
+	h := &api.Handler{Geocoder: geocode.NewService(nil)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=%20%20", nil)
+	rec := httptest.NewRecorder()
+	h.ListSuburbs(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestListSuburbs_missingRegionSlug(t *testing.T) {
 	h := &api.Handler{Geocoder: geocode.NewService(nil)}
 	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs", nil)
@@ -187,6 +198,9 @@ func TestListSuburbs_success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("X-Attribution"); got != config.Attribution {
+		t.Fatalf("X-Attribution: %q", got)
+	}
 
 	var body struct {
 		RegionSlug string `json:"region_slug"`
@@ -204,5 +218,111 @@ func TestListSuburbs_success(t *testing.T) {
 	}
 	if body.Suburbs[0].SuburbSlug != "richmond-vic-3121" {
 		t.Fatalf("suburb_slug: %q", body.Suburbs[0].SuburbSlug)
+	}
+}
+
+func TestListSuburbs_unknownSlug(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=no-such-vic", nil)
+	rec := httptest.NewRecorder()
+	h.ListSuburbs(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["suburbs"]) != "[]" {
+		t.Fatalf("suburbs JSON: %s", body["suburbs"])
+	}
+}
+
+func TestListSuburbs_stateMismatchEmpty(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=yarra-vic&state=NSW", nil)
+	rec := httptest.NewRecorder()
+	h.ListSuburbs(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["suburbs"]) != "[]" {
+		t.Fatalf("suburbs: %s", body["suburbs"])
+	}
+}
+
+func TestListSuburbs_invalidLimitUsesDefault(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=yarra-vic&limit=abc", nil)
+	rec := httptest.NewRecorder()
+	h.ListSuburbs(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Suburbs []map[string]any `json:"suburbs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Suburbs) != 1 {
+		t.Fatalf("suburbs: %+v", body.Suburbs)
 	}
 }

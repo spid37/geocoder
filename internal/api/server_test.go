@@ -139,6 +139,14 @@ func TestServerListSuburbs(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status: %d", rec.Code)
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=yarra-vic", nil)
+	req.Header.Set("X-API-Key", "secret-key")
+	rec = httptest.NewRecorder()
+	srvAuth.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated status: %d body: %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestServerGeocodeNotFound(t *testing.T) {

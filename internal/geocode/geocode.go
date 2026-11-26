@@ -29,11 +29,26 @@ type Result struct {
 	RegionSlug       string   `json:"region_slug,omitempty"`
 }
 
+type regionRef struct {
+	sa3Name string
+	state   string
+}
+
+type regionCatalog struct {
+	bySlug         map[string]regionRef
+	centroidsExist bool
+	sa3Assigned    bool
+}
+
 type Service struct {
 	db             *sql.DB
 	localities     []localityMatch
 	localitiesOnce sync.Once
 	localitiesErr  error
+
+	regionCatalog     *regionCatalog
+	regionCatalogOnce sync.Once
+	regionCatalogErr  error
 }
 
 func NewService(db *sql.DB) *Service {
@@ -144,9 +159,9 @@ func (s *Service) matchLocality(ctx context.Context, q Query) (*Result, error) {
 		return nil, err
 	}
 	res := &Result{
-		Latitude:       lat,
-		Longitude:      lon,
-		Accuracy:       AccuracySuburb,
+		Latitude:  lat,
+		Longitude: lon,
+		Accuracy:  AccuracySuburb,
 		Address: &Address{
 			Suburb:   locality,
 			State:    q.State,
@@ -177,9 +192,9 @@ func (s *Service) matchPostcode(ctx context.Context, q Query) (*Result, error) {
 		return nil, err
 	}
 	res := &Result{
-		Latitude:   lat,
-		Longitude:  lon,
-		Accuracy:   AccuracyPostcode,
+		Latitude:  lat,
+		Longitude: lon,
+		Accuracy:  AccuracyPostcode,
 		Address: &Address{
 			State:    q.State,
 			Postcode: postcode,

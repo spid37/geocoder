@@ -63,7 +63,7 @@ func (h *Handler) ListSuburbs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := r.URL.Query().Get("state")
-	limit := parseSuburbListLimit(r.URL.Query().Get("limit"))
+	limit := parseLimit(r.URL.Query().Get("limit"))
 
 	result, err := h.Geocoder.ListSuburbsByRegion(r.Context(), regionSlug, state, limit)
 	if err != nil {
@@ -71,7 +71,7 @@ func (h *Handler) ListSuburbs(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 			return
 		}
-		if err.Error() == "region_slug is required" {
+		if errors.Is(err, geocode.ErrRegionSlugRequired) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -123,10 +123,6 @@ func parseLimit(s string) int {
 		return 0
 	}
 	return n
-}
-
-func parseSuburbListLimit(s string) int {
-	return parseLimit(s)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

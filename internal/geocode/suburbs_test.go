@@ -107,6 +107,55 @@ func TestListSuburbsByRegion_limit(t *testing.T) {
 	if len(res.Suburbs) != 2 {
 		t.Fatalf("suburbs: %+v", res.Suburbs)
 	}
+	if !res.Truncated {
+		t.Fatal("expected truncated")
+	}
+}
+
+func TestListSuburbsByRegion_caseInsensitiveSlug(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := geocode.NewService(db)
+	res, err := svc.ListSuburbsByRegion(context.Background(), "YARRA-VIC", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Suburbs) != 1 || res.RegionSlug != "yarra-vic" {
+		t.Fatalf("res: %+v", res)
+	}
+}
+
+func TestListSuburbsByRegion_emptyDatabase(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	svc := geocode.NewService(db)
+	res, err := svc.ListSuburbsByRegion(context.Background(), "yarra-vic", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RegionSlug != "yarra-vic" || len(res.Suburbs) != 0 {
+		t.Fatalf("res: %+v", res)
+	}
 }
 
 func TestListSuburbsByRegion_stateGuard(t *testing.T) {
@@ -186,6 +235,34 @@ func TestListSuburbsByRegion_complexSA3Slug(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(res.Suburbs) != 1 || res.Suburbs[0].Suburb != "Mount Vernon" {
+		t.Fatalf("suburbs: %+v", res.Suburbs)
+	}
+}
+
+func TestListSuburbsByRegion_highLimitRequest(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := geocode.NewService(db)
+	res, err := svc.ListSuburbsByRegion(context.Background(), "yarra-vic", "", 9999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Suburbs) != 1 {
 		t.Fatalf("suburbs: %+v", res.Suburbs)
 	}
 }

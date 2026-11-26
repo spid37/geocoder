@@ -4,60 +4,58 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/spid37/geocoder/internal/normalize"
 )
 
-var ErrRegionsNotLoaded = errors.New("region data not loaded; run: geocoder regions load")
+var (
+	ErrRegionsNotLoaded   = errors.New("region data not loaded; run: geocoder regions load")
+	ErrRegionSlugRequired = errors.New("region_slug is required")
+)
 
 const (
 	defaultSuburbListLimit = 100
-	maxSuburbListLimit     = 100
+	maxSuburbListLimit     = 500
 )
 
 type SuburbsByRegionResponse struct {
 	RegionSlug string             `json:"region_slug"`
 	Suburbs    []SuburbSuggestion `json:"suburbs"`
+	Truncated  bool               `json:"truncated,omitempty"`
 }
 
 func (s *Service) ListSuburbsByRegion(ctx context.Context, regionSlug, stateFilter string, limit int) (*SuburbsByRegionResponse, error) {
-	regionSlug = strings.TrimSpace(regionSlug)
+	regionSlug = strings.ToLower(strings.TrimSpace(regionSlug))
 	if regionSlug == "" {
-		return nil, fmt.Errorf("region_slug is required")
+		return nil, ErrRegionSlugRequired
 	}
 
 	stateFilter = normalize.State(stateFilter)
 	limit = clampSuburbListLimit(limit)
 
-	loaded, err := s.regionsDataLoaded(ctx)
+	catalog, err := s.loadRegionCatalog(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if !loaded {
-		return nil, ErrRegionsNotLoaded
 	}
 
-	sa3Name, state, found, err := s.resolveSA3FromRegionSlug(ctx, regionSlug)
-	if err != nil {
-		return nil, err
-	}
+	ref, found := catalog.bySlug[regionSlug]
 	if !found {
 		return &SuburbsByRegionResponse{RegionSlug: regionSlug, Suburbs: []SuburbSuggestion{}}, nil
 	}
 
-	if stateFilter != "" && stateFilter != state {
+	if stateFilter != "" && stateFilter != normalize.State(ref.state) {
 		return &SuburbsByRegionResponse{RegionSlug: regionSlug, Suburbs: []SuburbSuggestion{}}, nil
 	}
 
+	fetchLimit := limit + 1
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT locality_name, state, postcode, sa3_name
 		FROM locality_centroids
 		WHERE sa3_name = ? AND state = ?
 		ORDER BY locality_name_norm, postcode
 		LIMIT ?`,
-		sa3Name, state, limit,
+		ref.sa3Name, ref.state, fetchLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -80,52 +78,79 @@ func (s *Service) ListSuburbsByRegion(ctx context.Context, regionSlug, stateFilt
 		out = []SuburbSuggestion{}
 	}
 
-	return &SuburbsByRegionResponse{RegionSlug: regionSlug, Suburbs: out}, nil
+	truncated := len(out) > limit
+	if truncated {
+		out = out[:limit]
+	}
+
+	return &SuburbsByRegionResponse{
+		RegionSlug: regionSlug,
+		Suburbs:    out,
+		Truncated:  truncated,
+	}, nil
 }
 
-func (s *Service) regionsDataLoaded(ctx context.Context) (bool, error) {
-	var one int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT 1 FROM locality_centroids
-		WHERE sa3_name IS NOT NULL AND sa3_name != ''
-		LIMIT 1`).Scan(&one)
-	if err == nil {
-		return true, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return false, err
-	}
-
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM locality_centroids`).Scan(&count); err != nil {
-		return false, err
-	}
-	if count > 0 {
-		return false, nil
-	}
-	return true, nil
-}
-
-func (s *Service) resolveSA3FromRegionSlug(ctx context.Context, regionSlug string) (sa3Name, state string, found bool, err error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT sa3_name, state
-		FROM locality_centroids
-		WHERE sa3_name IS NOT NULL AND sa3_name != ''`)
-	if err != nil {
-		return "", "", false, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var sa3, st string
-		if err := rows.Scan(&sa3, &st); err != nil {
-			return "", "", false, err
+func (s *Service) loadRegionCatalog(ctx context.Context) (*regionCatalog, error) {
+	s.regionCatalogOnce.Do(func() {
+		var exists int
+		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM locality_centroids LIMIT 1`).Scan(&exists)
+		centroidsExist := err == nil
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			s.regionCatalogErr = err
+			return
 		}
-		if buildRegionSlug(sa3, st) == regionSlug {
-			return sa3, strings.ToUpper(strings.TrimSpace(st)), true, nil
+
+		catalog := &regionCatalog{
+			bySlug:         make(map[string]regionRef),
+			centroidsExist: centroidsExist,
 		}
+
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT sa3_name, state
+			FROM locality_centroids
+			WHERE sa3_name IS NOT NULL AND sa3_name != ''
+			GROUP BY sa3_name, state
+			ORDER BY sa3_name, state`)
+		if err != nil {
+			s.regionCatalogErr = err
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var sa3, st string
+			if err := rows.Scan(&sa3, &st); err != nil {
+				s.regionCatalogErr = err
+				return
+			}
+			slug := buildRegionSlug(sa3, st)
+			if slug == "" {
+				continue
+			}
+			if _, ok := catalog.bySlug[slug]; !ok {
+				catalog.bySlug[slug] = regionRef{
+					sa3Name: sa3,
+					state:   normalize.State(st),
+				}
+			}
+			catalog.sa3Assigned = true
+		}
+		if err := rows.Err(); err != nil {
+			s.regionCatalogErr = err
+			return
+		}
+
+		if catalog.centroidsExist && !catalog.sa3Assigned {
+			s.regionCatalogErr = ErrRegionsNotLoaded
+			return
+		}
+
+		s.regionCatalog = catalog
+	})
+	if s.regionCatalogErr != nil {
+		return nil, s.regionCatalogErr
 	}
-	return "", "", false, rows.Err()
+	return s.regionCatalog, nil
 }
 
 func clampSuburbListLimit(limit int) int {
