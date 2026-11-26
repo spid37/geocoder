@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,12 +14,11 @@ import (
 
 var (
 	ErrRadiusRequired     = errors.New("radius is required")
-	ErrInvalidRadius      = errors.New("invalid radius")
+	ErrInvalidRadius      = errors.New("invalid radius (use m, km, or mi; max 500km)")
 	ErrCenterRequired     = errors.New("exactly one of suburb_slug or latitude+longitude is required")
 	ErrInvalidCenter      = errors.New("latitude and longitude must be provided together")
 	ErrSuburbSlugNotFound = errors.New("suburb_slug not found")
 	ErrInvalidCoordinates = errors.New("invalid latitude or longitude")
-
 )
 
 const (
@@ -65,10 +65,10 @@ type SuburbsNearbyResponse struct {
 }
 
 type nearbyCentre struct {
-	lat, lon       float64
-	suburbSlug     string
-	excludeSlug    bool
-	center         SuburbCenter
+	lat, lon    float64
+	suburbSlug  string
+	excludeSlug bool
+	center      SuburbCenter
 }
 
 func (s *Service) SuburbsNearby(ctx context.Context, q NearbyQuery) (*SuburbsNearbyResponse, error) {
@@ -208,7 +208,7 @@ func (s *Service) resolveNearbyCentre(q NearbyQuery) (nearbyCentre, error) {
 		if err != nil {
 			return nearbyCentre{}, ErrInvalidCoordinates
 		}
-		if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		if !validLatLon(lat, lon) {
 			return nearbyCentre{}, ErrInvalidCoordinates
 		}
 		return nearbyCentre{
@@ -227,7 +227,8 @@ func (s *Service) loadSuburbSlugIndex() (map[string]suburbCentroid, error) {
 		initCtx := context.Background()
 		rows, err := s.db.QueryContext(initCtx, `
 			SELECT locality_name, state, postcode, latitude, longitude, sa3_name
-			FROM locality_centroids`)
+			FROM locality_centroids
+			ORDER BY state, postcode, locality_name_norm`)
 		if err != nil {
 			s.suburbBySlugErr = err
 			return
@@ -276,6 +277,13 @@ func (s *Service) loadSuburbSlugIndex() (map[string]suburbCentroid, error) {
 		return map[string]suburbCentroid{}, nil
 	}
 	return s.suburbBySlug, nil
+}
+
+func validLatLon(lat, lon float64) bool {
+	if math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) {
+		return false
+	}
+	return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 }
 
 func clampNearbyLimit(limit int) int {

@@ -406,3 +406,80 @@ func TestSuburbsNearby_success(t *testing.T) {
 		t.Fatalf("distance_m missing: %+v", body.Suburbs[0])
 	}
 }
+
+func TestSuburbsNearby_latLngCentre(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=5km&latitude=-37.8182&longitude=145.0012", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuburbsNearby_invalidRadius(t *testing.T) {
+	h := &api.Handler{Geocoder: geocode.NewService(nil)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=10yd&latitude=0&longitude=0", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuburbsNearby_invalidCoordinatesHTTP(t *testing.T) {
+	h := &api.Handler{Geocoder: geocode.NewService(nil)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=5km&latitude=NaN&longitude=145", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuburbsNearby_emptySuburbsJSON(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=1m&latitude=-10&longitude=10", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["suburbs"]) != "[]" {
+		t.Fatalf("suburbs: %s", body["suburbs"])
+	}
+}

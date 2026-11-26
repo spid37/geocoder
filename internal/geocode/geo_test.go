@@ -50,7 +50,17 @@ func TestHaversineM_RichmondHawthorn(t *testing.T) {
 	const richLat, richLon = -37.8182, 145.0012
 	const hawLat, hawLon = -37.82, 145.02
 	d := haversineM(richLat, richLon, hawLat, hawLon)
-	if d < 1000 || d > 25_000 {
+	if d < 1600 || d > 1750 {
 		t.Fatalf("distance %v m seems wrong", d)
+	}
+}
+
+func TestBoundingBox_southernLatitudeWiderLon(t *testing.T) {
+	_, _, minLon1, maxLon1 := boundingBox(-37.8182, 145.0, 500_000)
+	_, _, minLon2, maxLon2 := boundingBox(-43.0, 145.0, 500_000)
+	span1 := maxLon1 - minLon1
+	span2 := maxLon2 - minLon2
+	if span2 <= span1 {
+		t.Fatalf("southern box should span more longitude: %v vs %v", span2, span1)
 	}
 }

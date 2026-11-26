@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	earthRadiusM    = 6_371_000
-	metersPerDegree = 111_320
-	maxRadiusM      = 500_000 // 500 km
+	earthRadiusM = 6_371_000
+	maxRadiusM   = 500_000 // 500 km
 )
+
+const bboxMargin = 1.01 // slightly widen prefilter; haversine is exact
 
 var radiusPattern = regexp.MustCompile(`(?i)^\s*(\d+(?:\.\d+)?)\s*(m|km|mi)\s*$`)
 
@@ -46,12 +47,14 @@ func parseRadius(s string) (float64, error) {
 }
 
 func boundingBox(lat, lon, radiusM float64) (minLat, maxLat, minLon, maxLon float64) {
-	deltaLat := radiusM / metersPerDegree
-	cosLat := math.Cos(lat * math.Pi / 180)
+	const degPerRad = 180 / math.Pi
+	deltaLat := (radiusM / earthRadiusM) * degPerRad * bboxMargin
+	maxAbsLat := math.Min(89.9999, math.Abs(lat)+deltaLat)
+	cosLat := math.Cos(maxAbsLat * math.Pi / 180)
 	if cosLat < 1e-9 {
 		cosLat = 1e-9
 	}
-	deltaLon := radiusM / (metersPerDegree * cosLat)
+	deltaLon := (radiusM / (earthRadiusM * cosLat)) * degPerRad * bboxMargin
 
 	minLat = lat - deltaLat
 	maxLat = lat + deltaLat
@@ -66,6 +69,9 @@ func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
 	dLon := (lon2 - lon1) * deg2rad
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
 		math.Cos(lat1*deg2rad)*math.Cos(lat2*deg2rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	if a > 1 {
+		a = 1
+	}
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return earthRadiusM * c
 }

@@ -173,6 +173,63 @@ func TestSuburbsNearby_emptyRadius(t *testing.T) {
 	}
 }
 
+func TestSuburbsNearby_caseInsensitiveSlug(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	insertNearbyFixtures(t, db)
+
+	svc := geocode.NewService(db)
+	res, err := svc.SuburbsNearby(context.Background(), geocode.NearbyQuery{
+		Radius:     "15km",
+		SuburbSlug: "RICHMOND-VIC-3121",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Center.SuburbSlug != "richmond-vic-3121" {
+		t.Fatalf("center: %+v", res.Center)
+	}
+}
+
+func TestSuburbsNearby_invalidCoordinates(t *testing.T) {
+	svc := geocode.NewService(nil)
+	_, err := svc.SuburbsNearby(context.Background(), geocode.NearbyQuery{
+		Radius:    "5km",
+		Latitude:  "NaN",
+		Longitude: "145",
+	})
+	if !errors.Is(err, geocode.ErrInvalidCoordinates) {
+		t.Fatalf("NaN: %v", err)
+	}
+	_, err = svc.SuburbsNearby(context.Background(), geocode.NearbyQuery{
+		Radius:    "5km",
+		Latitude:  "91",
+		Longitude: "145",
+	})
+	if !errors.Is(err, geocode.ErrInvalidCoordinates) {
+		t.Fatalf("lat 91: %v", err)
+	}
+	_, err = svc.SuburbsNearby(context.Background(), geocode.NearbyQuery{
+		Radius:    "5km",
+		Latitude:  "-37",
+		Longitude: "Inf",
+	})
+	if !errors.Is(err, geocode.ErrInvalidCoordinates) {
+		t.Fatalf("Inf: %v", err)
+	}
+	_, err = svc.SuburbsNearby(context.Background(), geocode.NearbyQuery{
+		Radius:   "5km",
+		Latitude: "-37",
+	})
+	if !errors.Is(err, geocode.ErrInvalidCenter) {
+		t.Fatalf("half centre: %v", err)
+	}
+}
+
 func TestSuburbsNearby_stateFilter(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.db"), false)
