@@ -84,6 +84,7 @@ For hosting with an externally built SQLite database on AWS (EC2 + S3), see [doc
 | `GET /v1/suggest/suburbs` | Suburb autocomplete |
 | `GET /v1/suggest/regions` | SA3 region autocomplete |
 | `GET /v1/suggest/addresses` | Address autocomplete |
+| `GET /v1/suburbs` | List suburbs in an SA3 region (`region_slug`, optional `state`, optional `limit` default 100, max 500) |
 | `GET /health` | Liveness check |
 | `GET /health/data` | Database vs local manifest freshness |
 | `GET /version` | Application version |
@@ -93,6 +94,25 @@ curl "http://localhost:8080/v1/geocode?street=1+Collins+St&suburb=Melbourne&stat
 curl "http://localhost:8080/v1/suggest/suburbs?q=mount&state=VIC"
 curl "http://localhost:8080/v1/suggest/regions?q=melbourne&state=VIC"
 curl "http://localhost:8080/v1/suggest/addresses?q=42+demo+rd+rich&state=VIC"
+curl "http://localhost:8080/v1/suburbs?region_slug=yarra-vic"
+```
+
+`GET /v1/suburbs` requires `region_slug` (same lowercase format as suggest regions, e.g. `yarra-vic`; matching is case-insensitive). Optional `state` must match the region’s state or results are empty. Optional `limit` defaults to 100 (maximum 500); when more suburbs exist than `limit`, the response includes `"truncated": true`. An unknown `region_slug` returns `200` with an empty `suburbs` array (same as an empty region or a database with no centroid rows yet). If centroids exist but SA3 has not been assigned (`regions load`), the API returns `503` with guidance to run `geocoder regions load` — check `/health/data` for `regions_loaded_at`.
+
+```json
+{
+  "region_slug": "yarra-vic",
+  "suburbs": [
+    {
+      "suburb": "Richmond",
+      "state": "VIC",
+      "postcode": "3121",
+      "region": "Yarra",
+      "suburb_slug": "richmond-vic-3121",
+      "region_slug": "yarra-vic"
+    }
+  ]
+}
 ```
 
 When `API_KEY` is set (comma-separated list), `/v1/*` routes require a key via `X-API-Key` header or `Authorization: Bearer <key>`. `/health`, `/health/data`, and `/version` stay open.
