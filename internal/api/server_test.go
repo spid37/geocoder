@@ -101,6 +101,46 @@ func TestServerSuggestAddresses(t *testing.T) {
 	}
 }
 
+func TestServerListSuburbs(t *testing.T) {
+	db := testdata.OpenDB(t)
+	srv := api.NewServer(":0", db, t.TempDir(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=yarra-vic", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		RegionSlug string           `json:"region_slug"`
+		Suburbs    []map[string]any `json:"suburbs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.RegionSlug != "yarra-vic" {
+		t.Fatalf("region_slug: %q", body.RegionSlug)
+	}
+	var found bool
+	for _, s := range body.Suburbs {
+		if s["suburb"] == "Richmond" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("suburbs: %+v", body.Suburbs)
+	}
+
+	srvAuth := api.NewServer(":0", db, t.TempDir(), api.ParseAPIKeys("secret-key"))
+	req = httptest.NewRequest(http.MethodGet, "/v1/suburbs?region_slug=yarra-vic", nil)
+	rec = httptest.NewRecorder()
+	srvAuth.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status: %d", rec.Code)
+	}
+}
+
 func TestServerGeocodeNotFound(t *testing.T) {
 	db := testdata.OpenDB(t)
 	srv := api.NewServer(":0", db, t.TempDir(), nil)

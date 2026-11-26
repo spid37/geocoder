@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/spid37/geocoder/internal/config"
 	"github.com/spid37/geocoder/internal/geocode"
@@ -53,6 +55,34 @@ func (h *Handler) SuggestRegions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) ListSuburbs(w http.ResponseWriter, r *http.Request) {
+	regionSlug := r.URL.Query().Get("region_slug")
+	if strings.TrimSpace(regionSlug) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "region_slug is required"})
+		return
+	}
+
+	state := r.URL.Query().Get("state")
+	limit := parseSuburbListLimit(r.URL.Query().Get("limit"))
+
+	result, err := h.Geocoder.ListSuburbsByRegion(r.Context(), regionSlug, state, limit)
+	if err != nil {
+		if errors.Is(err, geocode.ErrRegionsNotLoaded) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+			return
+		}
+		if err.Error() == "region_slug is required" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list suburbs failed"})
+		return
+	}
+
+	w.Header().Set("X-Attribution", config.Attribution)
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) SuggestAddresses(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	suburb := r.URL.Query().Get("suburb")
@@ -93,6 +123,10 @@ func parseLimit(s string) int {
 		return 0
 	}
 	return n
+}
+
+func parseSuburbListLimit(s string) int {
+	return parseLimit(s)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
