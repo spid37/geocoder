@@ -55,6 +55,36 @@ func (h *Handler) SuggestRegions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) SuburbsNearby(w http.ResponseWriter, r *http.Request) {
+	limit := parseLimit(r.URL.Query().Get("limit"))
+	result, err := h.Geocoder.SuburbsNearby(r.Context(), geocode.NearbyQuery{
+		Radius:     r.URL.Query().Get("radius"),
+		SuburbSlug: r.URL.Query().Get("suburb_slug"),
+		Latitude:   r.URL.Query().Get("latitude"),
+		Longitude:  r.URL.Query().Get("longitude"),
+		State:      r.URL.Query().Get("state"),
+		Limit:      limit,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, geocode.ErrSuburbSlugNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		case errors.Is(err, geocode.ErrRadiusRequired),
+			errors.Is(err, geocode.ErrInvalidRadius),
+			errors.Is(err, geocode.ErrCenterRequired),
+			errors.Is(err, geocode.ErrInvalidCenter),
+			errors.Is(err, geocode.ErrInvalidCoordinates):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "suburbs nearby failed"})
+		}
+		return
+	}
+
+	w.Header().Set("X-Attribution", config.Attribution)
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) ListSuburbs(w http.ResponseWriter, r *http.Request) {
 	regionSlug := r.URL.Query().Get("region_slug")
 	if strings.TrimSpace(regionSlug) == "" {

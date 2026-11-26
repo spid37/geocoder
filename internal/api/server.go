@@ -31,6 +31,7 @@ func NewServer(addr string, db *sql.DB, dataDir string, apiKeys *APIKeyAuth) *Se
 	mux.HandleFunc("GET /v1/suggest/regions", apiKeys.wrap(h.SuggestRegions))
 	mux.HandleFunc("GET /v1/suggest/addresses", apiKeys.wrap(h.SuggestAddresses))
 	mux.HandleFunc("GET /v1/suburbs", apiKeys.wrap(h.ListSuburbs))
+	mux.HandleFunc("GET /v1/suburbs/nearby", apiKeys.wrap(h.SuburbsNearby))
 	mux.HandleFunc("GET /version", handleVersion)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{

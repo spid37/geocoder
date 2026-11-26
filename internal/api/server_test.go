@@ -149,6 +149,33 @@ func TestServerListSuburbs(t *testing.T) {
 	}
 }
 
+func TestServerSuburbsNearby(t *testing.T) {
+	db := testdata.OpenDB(t)
+	srv := api.NewServer(":0", db, t.TempDir(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=50km&suburb_slug=richmond-vic-3121&state=VIC", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	srvAuth := api.NewServer(":0", db, t.TempDir(), api.ParseAPIKeys("secret-key"))
+	req = httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=50km&suburb_slug=richmond-vic-3121", nil)
+	rec = httptest.NewRecorder()
+	srvAuth.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated: %d", rec.Code)
+	}
+
+	req.Header.Set("X-API-Key", "secret-key")
+	rec = httptest.NewRecorder()
+	srvAuth.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestServerGeocodeNotFound(t *testing.T) {
 	db := testdata.OpenDB(t)
 	srv := api.NewServer(":0", db, t.TempDir(), nil)
