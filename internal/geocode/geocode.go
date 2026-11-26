@@ -35,9 +35,7 @@ type regionRef struct {
 }
 
 type regionCatalog struct {
-	bySlug         map[string]regionRef
-	centroidsExist bool
-	sa3Assigned    bool
+	bySlug map[string]regionRef
 }
 
 type Service struct {

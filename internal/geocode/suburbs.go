@@ -34,7 +34,7 @@ func (s *Service) ListSuburbsByRegion(ctx context.Context, regionSlug, stateFilt
 	stateFilter = normalize.State(stateFilter)
 	limit = clampSuburbListLimit(limit)
 
-	catalog, err := s.loadRegionCatalog(ctx)
+	catalog, err := s.loadRegionCatalog()
 	if err != nil {
 		return nil, err
 	}
@@ -90,22 +90,26 @@ func (s *Service) ListSuburbsByRegion(ctx context.Context, regionSlug, stateFilt
 	}, nil
 }
 
-func (s *Service) loadRegionCatalog(ctx context.Context) (*regionCatalog, error) {
+func (s *Service) loadRegionCatalog() (*regionCatalog, error) {
 	s.regionCatalogOnce.Do(func() {
+		initCtx := context.Background()
+
 		var exists int
-		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM locality_centroids LIMIT 1`).Scan(&exists)
+		err := s.db.QueryRowContext(initCtx, `SELECT 1 FROM locality_centroids LIMIT 1`).Scan(&exists)
 		centroidsExist := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.regionCatalogErr = err
 			return
 		}
 
-		catalog := &regionCatalog{
-			bySlug:         make(map[string]regionRef),
-			centroidsExist: centroidsExist,
+		if !centroidsExist {
+			s.regionCatalog = &regionCatalog{bySlug: make(map[string]regionRef)}
+			return
 		}
 
-		rows, err := s.db.QueryContext(ctx, `
+		catalog := &regionCatalog{bySlug: make(map[string]regionRef)}
+
+		rows, err := s.db.QueryContext(initCtx, `
 			SELECT sa3_name, state
 			FROM locality_centroids
 			WHERE sa3_name IS NOT NULL AND sa3_name != ''
@@ -117,6 +121,7 @@ func (s *Service) loadRegionCatalog(ctx context.Context) (*regionCatalog, error)
 		}
 		defer rows.Close()
 
+		sa3Assigned := false
 		for rows.Next() {
 			var sa3, st string
 			if err := rows.Scan(&sa3, &st); err != nil {
@@ -130,17 +135,17 @@ func (s *Service) loadRegionCatalog(ctx context.Context) (*regionCatalog, error)
 			if _, ok := catalog.bySlug[slug]; !ok {
 				catalog.bySlug[slug] = regionRef{
 					sa3Name: sa3,
-					state:   normalize.State(st),
+					state:   strings.TrimSpace(st),
 				}
 			}
-			catalog.sa3Assigned = true
+			sa3Assigned = true
 		}
 		if err := rows.Err(); err != nil {
 			s.regionCatalogErr = err
 			return
 		}
 
-		if catalog.centroidsExist && !catalog.sa3Assigned {
+		if !sa3Assigned {
 			s.regionCatalogErr = ErrRegionsNotLoaded
 			return
 		}
