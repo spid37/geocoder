@@ -85,6 +85,7 @@ For hosting with an externally built SQLite database on AWS (EC2 + S3), see [doc
 | `GET /v1/suggest/regions` | SA3 region autocomplete |
 | `GET /v1/suggest/addresses` | Address autocomplete |
 | `GET /v1/suburbs` | List suburbs in an SA3 region (`region_slug`, optional `state`, optional `limit` default 100, max 500) |
+| `GET /v1/suburbs/nearby` | Suburbs within a radius of a centre (`radius`, optional `limit` default 20, max 100) |
 | `GET /health` | Liveness check |
 | `GET /health/data` | Database vs local manifest freshness |
 | `GET /version` | Application version |
@@ -95,6 +96,36 @@ curl "http://localhost:8080/v1/suggest/suburbs?q=mount&state=VIC"
 curl "http://localhost:8080/v1/suggest/regions?q=melbourne&state=VIC"
 curl "http://localhost:8080/v1/suggest/addresses?q=42+demo+rd+rich&state=VIC"
 curl "http://localhost:8080/v1/suburbs?region_slug=yarra-vic"
+curl "http://localhost:8080/v1/suburbs/nearby?radius=10km&suburb_slug=richmond-vic-3121"
+curl "http://localhost:8080/v1/suburbs/nearby?radius=5km&latitude=-37.8182&longitude=145.0012"
+```
+
+`GET /v1/suburbs/nearby` requires `radius` with a unit: `m`, `km`, or `mi` (e.g. `500m`, `10km`, `5mi`; maximum 500 km). Provide exactly one centre: `suburb_slug` (case-insensitive, same format as suggest) **or** `latitude` and `longitude` together. Optional `limit` defaults to 20 (maximum 100). Optional `state` filters results to that state. Unknown `suburb_slug` centre returns `404`. Results are sorted by `distance_m` ascending; when the centre is a `suburb_slug`, that suburb is omitted from `suburbs` but returned in `center`. When more results exist than `limit`, the response includes `"truncated": true`.
+
+```json
+{
+  "center": {
+    "suburb": "Richmond",
+    "state": "VIC",
+    "postcode": "3121",
+    "region": "Yarra",
+    "suburb_slug": "richmond-vic-3121",
+    "region_slug": "yarra-vic",
+    "latitude": -37.8182,
+    "longitude": 145.0012
+  },
+  "suburbs": [
+    {
+      "suburb": "Hawthorn",
+      "state": "VIC",
+      "postcode": "3123",
+      "suburb_slug": "hawthorn-vic-3123",
+      "latitude": -37.82,
+      "longitude": 145.02,
+      "distance_m": 1672.4
+    }
+  ]
+}
 ```
 
 `GET /v1/suburbs` requires `region_slug` (same lowercase format as suggest regions, e.g. `yarra-vic`; matching is case-insensitive). Optional `state` must match the region’s state or results are empty. Optional `limit` defaults to 100 (maximum 500); when more suburbs exist than `limit`, the response includes `"truncated": true`. An unknown `region_slug` returns `200` with an empty `suburbs` array (same as an empty region or a database with no centroid rows yet). If centroids exist but SA3 has not been assigned (`regions load`), the API returns `503` with guidance to run `geocoder regions load` — check `/health/data` for `regions_loaded_at`.

@@ -326,3 +326,83 @@ func TestListSuburbs_invalidLimitUsesDefault(t *testing.T) {
 		t.Fatalf("suburbs: %+v", body.Suburbs)
 	}
 }
+
+func TestSuburbsNearby_missingRadius(t *testing.T) {
+	h := &api.Handler{Geocoder: geocode.NewService(nil)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?suburb_slug=richmond-vic-3121", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuburbsNearby_notFoundSlug(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES (
+			'VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=5km&suburb_slug=no-such-vic-3000", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuburbsNearby_success(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		INSERT INTO locality_centroids (
+			state, postcode, locality_name, locality_name_norm,
+			latitude, longitude, address_count, sa3_name
+		) VALUES
+			('VIC', '3121', 'RICHMOND', 'RICHMOND', -37.8182, 145.0012, 500, 'Yarra'),
+			('VIC', '3123', 'HAWTHORN', 'HAWTHORN', -37.82, 145.02, 400, 'Yarra')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &api.Handler{Geocoder: geocode.NewService(db)}
+	req := httptest.NewRequest(http.MethodGet, "/v1/suburbs/nearby?radius=10km&suburb_slug=richmond-vic-3121", nil)
+	rec := httptest.NewRecorder()
+	h.SuburbsNearby(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-Attribution"); got != config.Attribution {
+		t.Fatalf("X-Attribution: %q", got)
+	}
+	var body struct {
+		Center  map[string]any   `json:"center"`
+		Suburbs []map[string]any `json:"suburbs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Center["suburb_slug"] != "richmond-vic-3121" {
+		t.Fatalf("center: %+v", body.Center)
+	}
+	if len(body.Suburbs) < 1 {
+		t.Fatalf("suburbs: %+v", body.Suburbs)
+	}
+	if _, ok := body.Suburbs[0]["distance_m"]; !ok {
+		t.Fatalf("distance_m missing: %+v", body.Suburbs[0])
+	}
+}

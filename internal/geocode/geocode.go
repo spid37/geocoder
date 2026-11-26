@@ -38,6 +38,16 @@ type regionCatalog struct {
 	bySlug map[string]regionRef
 }
 
+type suburbCentroid struct {
+	locality   string
+	state      string
+	postcode   string
+	latitude   float64
+	longitude  float64
+	sa3Name    string
+	suburbSlug string
+}
+
 type Service struct {
 	db             *sql.DB
 	localities     []localityMatch
@@ -47,6 +57,10 @@ type Service struct {
 	regionCatalog     *regionCatalog
 	regionCatalogOnce sync.Once
 	regionCatalogErr  error
+
+	suburbBySlug     map[string]suburbCentroid
+	suburbBySlugOnce sync.Once
+	suburbBySlugErr  error
 }
 
 func NewService(db *sql.DB) *Service {
